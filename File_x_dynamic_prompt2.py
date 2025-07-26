@@ -32,7 +32,7 @@ from comfy.cli_args import args
 # choice with shared state: {key$$white|red|green|blue} {key$$shirt|dress|gown|robe} -> "white shirt" or "red dress" or "green gown" or "blue robe"
 # multiple choice with shared state: {key$$2-$$ and $$white|red|green|blue}
 # set variable with immediate choice with shared state: ${key$$color=!{white|red|green|blue}}
-# set variable without immediate choice with shared state (NOTE:useless): ${key$$color={white|red|green|blue}}
+# set variable without immediate choice with shared state: ${key$$color={white|red|green|blue}}
 # recall variable with shared state: ${key$$color}
 # pick random float value: {@1@4} -> "1.392201037050627" or "1.839848316252876" or "1.4263152370072754" or "3.654797775525515" etc.
 # pick random int value (inclusive): {@@1@4} -> "1" or "2" or "3" or "4"
@@ -50,51 +50,49 @@ class File_x_Dynamic_Prompt_Processer:
         self.rng_states: dict = states.get("rng_states", {})
         self.wildcard_path = wildcard_path
 
-    def variable(self, text) -> str:
+    def variable_store(self, state, key, value) -> str:
         tmp_rng_state = None
-        result: re.Match = re.search(r"^([^0-9-].*?)\$\$", text)
-        if result is not None:
-            rng_state = self.rng_states.get(result[1], None)
+        if state is not None:
+            rng_state = self.rng_states.get(state, None)
             if rng_state is None:
-                self.rng_states[result[1]] = self.rng.getstate()
+                self.rng_states[state] = self.rng.getstate()
             else:
                 tmp_rng_state = self.rng.getstate()
                 self.rng.setstate(rng_state)
-            text = re.sub(r"^([^0-9-].*?)\$\$", "{", text, 1)
 
-        result: re.Match = re.search(r"=|=!", text)
-        if result is None:
-            variable = self.variables.get(text, None)
-            if variable is None:
-                raise Exception(f'Variable "{variable}" is not defined yet.')
-            else:
-                return self.search(variable)
-        else:
-            result: re.Match = re.search(r"(.*?)=!(.*)", text)
-            if result is None:
-                result: re.Match = re.search(r"(.*?)=(.*)", text)
-                if result is None:
-                    raise Exception('Unexpect error while parsing variable.')
-                else:
-                    self.variables[result[1]] = result[2]
-                    return ""
-            else:
-                self.variables[result[1]] = self.search(result[2])
-                if tmp_rng_state is not None:
-                    self.rng.setstate(tmp_rng_state)
-                return ""
+        self.variables[key] = value
 
-    def choice(self, text) -> str:
+        if tmp_rng_state is not None:
+            self.rng.setstate(tmp_rng_state)
+
+        return ""
+    
+    def variable_recall(self, state, key) -> str:
         tmp_rng_state = None
-        result: re.Match = re.search(r"^([^0-9-].*?)\$\$", text)
-        if result is not None:
-            rng_state = self.rng_states.get(result[1], None)
+        if state is not None:
+            rng_state = self.rng_states.get(state, None)
             if rng_state is None:
-                self.rng_states[result[1]] = self.rng.getstate()
+                self.rng_states[state] = self.rng.getstate()
             else:
                 tmp_rng_state = self.rng.getstate()
                 self.rng.setstate(rng_state)
-            text = re.sub(r"^([^0-9].*?)\$\$", "", text, 1)
+
+        value = self.search(self.variables[key])
+
+        if tmp_rng_state is not None:
+            self.rng.setstate(tmp_rng_state)
+
+        return value
+
+    def choice(self, state, text) -> str:
+        tmp_rng_state = None
+        if state is not None:
+            rng_state = self.rng_states.get(state, None)
+            if rng_state is None:
+                self.rng_states[state] = self.rng.getstate()
+            else:
+                tmp_rng_state = self.rng.getstate()
+                self.rng.setstate(rng_state)
 
         count_a = 1
         count_b = 1
@@ -159,19 +157,18 @@ class File_x_Dynamic_Prompt_Processer:
 
         if tmp_rng_state is not None:
             self.rng.setstate(tmp_rng_state)
+
         return output
 
-    def wildcard(self, text) -> str:
+    def wildcard(self, state, text) -> str:
         tmp_rng_state = None
-        result: re.Match = re.search(r"^([^0-9-].*?)\$\$", text)
-        if result is not None:
-            rng_state = self.rng_states.get(result[1], None)
+        if state is not None:
+            rng_state = self.rng_states.get(state, None)
             if rng_state is None:
-                self.rng_states[result[1]] = self.rng.getstate()
+                self.rng_states[state] = self.rng.getstate()
             else:
                 tmp_rng_state = self.rng.getstate()
                 self.rng.setstate(rng_state)
-            text = re.sub(r"^([^0-9-].*?)\$\$", "", text, 1)
 
         output = ""
         if text == "":
@@ -187,47 +184,134 @@ class File_x_Dynamic_Prompt_Processer:
                     output += line.replace("\n", "|")
                 output = output.rstrip("|")
         output = self.search("{" + output + "}")
+
         if tmp_rng_state is not None:
             self.rng.setstate(tmp_rng_state)
         return output
     
-    def search(self, text) -> str:
+    def search_wildcard(self, text) -> str:
+        if text is None:
+            return None
         while True:
-            result = re.search(r"(.*?)(?<!\\)(\$\{|\{|\}|__)(.*?)(?<!\\)(\$\{|\{|\}|__)(.*)", text)
-            if result is None:
-                result_ = re.search(r"(.*?)(?<!\\)(\$\{|\{|\}|__)(.*)", text)
+            result = re.search(r"(.*?)(?<!\\)__(.*?)(?<!\\)__(.*)", text)
+            if result is not None:
+                text = result[1] + self.search_wildcard(text) + result[3]
+                continue
+            result = re.search(r"(.*?)(?<!\\)\}(.*)", text)
+            if result is not None:
+                result_ = re.search(r"(.*[^$])?(?<!\\)(\$\{|\{)(.*)", result[1])
                 if result_ is not None:
-                    raise Exception(r'Odd number of enclosures: "${", "{" "}" "__" .')
-                else:
-                    return text
-            elif result[4] == "${" or result[4] == "{":
-                if result[2] == "${" or result[2] == "{" or result[2] == "__":
-                    result_ = self.search(result[3] + result[4] + result[5])
-                    text = result[1] + result[2] + result_
-                elif result[2] == "}":
-                    return text
-            elif result[4] == "}":
-                if result[2] == "{":
-                    result_ = self.choice(result[3])
-                    text = result[1] + result_ + result[5]
-                elif result[2] == "${":
-                    result_ = self.variable(result[3])
-                    text = result[1] + result_ + result[5]
-                elif result[2] == "}" or result[2] == "__":
-                    return text
-            elif result[4] == "__":
-                if result[2] == "${" or result[2] == "{":
-                    result_ = self.search(result[3] + result[4] + result[5])
-                    text = self.search(result[1] + result[2] + result_)
-                elif result[2] == "}":
-                    return text
-                elif result[2] == "__":
-                    result_ = self.wildcard(result[3])
-                    text = result[1] + result_ + result[5]
-            
+                    left = "" if result_[1] is None else result_[1]
+                    if result_[2] == "${":
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=!(.*)", result_[3])
+                        if result_0 is not None:
+                            # store variable with immediate evaluation
+                            text = left + self.variable_store(self.search(result_0[1]), self.search(result_0[2]), self.search(result_0[3])) + result[2]
+                            continue
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=(.*)", result_[3])
+                        if result_0 is not None:
+                            # storevariable without immediate evaluation
+                            text = left + self.variable_store(self.search(result_0[1]), self.search(result_0[2]), self.search_keep(result_0[3])) + result[2]
+                            continue
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)", result_[3])
+                        if result_0 is not None:
+                            # recall variable
+                            text = left + self.variable_recall(self.search(result_0[1]), self.search(result_0[2])) + result[2]
+                            continue
+                    if result_[2] == "{":
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)", result_[3])
+                        if result_0 is not None:
+                            # choice
+                            text = left + self.choice(self.search(result_0[1]), self.search(result_0[2])) + result[2]
+                            continue
+            result_ = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)", result[2])
+            if result_ is not None:
+                text = result[1] + self.wildcard(result_[1], result_[2]) + result[3]
+                continue
+            return text
+    
+    def search_keep(self, text) -> str:
+        output = ""
+        if text is None:
+            return None
+        while True:
+            result = re.search(r"(.*?)(?<!\\)__(.*?)(?<!\\)__(.*)", text)
+            if result is not None:
+                text = result[1] + result[3]
+                output = result[0]
+                continue
+            result = re.search(r"(.*?)(?<!\\)\}(.*)", text)
+            if result is not None:
+                result_ = re.search(r"(.*[^$])?(?<!\\)(\$\{|\{)(.*)", result[1])
+                if result_ is not None:
+                    left = "" if result_[1] is None else result_[1]
+                    if result_[2] == "${":
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=!(.*)", result_[3])
+                        if result_0 is not None:
+                            # store variable with immediate evaluation
+                            text = left + result[2]
+                            output = left + "${" + result_0[0] + "}" + result[2]
+                            continue
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=(.*)", result_[3])
+                        if result_0 is not None:
+                            # storevariable without immediate evaluation
+                            text = left + result[2]
+                            output = left + "${" + result_0[0] + "}" + result[2]
+                            continue
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)", result_[3])
+                        if result_0 is not None:
+                            # recall variable
+                            text = left + result[2]
+                            output = left + "${" + result_0[0] + "}" + result[2]
+                            continue
+                    if result_[2] == "{":
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)", result_[3])
+                        if result_0 is not None:
+                            # choice
+                            text = left + result[2]
+                            output = left + "${" + result_0[0] + "}" + result[2]
+                            continue
+            return output
+    
+    def search(self, text) -> str:
+        if text is None:
+            return None
+        while True:
+            result = re.search(r"(.*?)(?<!\\)__(.*?)(?<!\\)__(.*)", text)
+            if result is not None:
+                text = result[1] + self.search_wildcard(text) + result[3]
+                continue
+            result = re.search(r"(.*?)(?<!\\)\}(.*)", text)
+            if result is not None:
+                result_ = re.search(r"(.*[^$])?(?<!\\)(\$\{|\{)(.*)", result[1])
+                if result_ is not None:
+                    left = "" if result_[1] is None else result_[1]
+                    if result_[2] == "${":
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=!(.*)", result_[3])
+                        if result_0 is not None:
+                            # store variable with immediate evaluation
+                            text = left + self.variable_store(self.search(result_0[1]), self.search(result_0[2]), self.search(result_0[3])) + result[2]
+                            continue
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=(.*)", result_[3])
+                        if result_0 is not None:
+                            # storevariable without immediate evaluation
+                            text = left + self.variable_store(self.search(result_0[1]), self.search(result_0[2]), self.search_keep(result_0[3])) + result[2]
+                            continue
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)", result_[3])
+                        if result_0 is not None:
+                            # recall variable
+                            text = left + self.variable_recall(self.search(result_0[1]), self.search(result_0[2])) + result[2]
+                            continue
+                    if result_[2] == "{":
+                        result_0 = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)", result_[3])
+                        if result_0 is not None:
+                            # choice
+                            text = left + self.choice(self.search(result_0[1]), self.search(result_0[2])) + result[2]
+                            continue
+            return text
+
     def process(self, text) -> str:
         return self.search(text)
-
 
 class File_x_DynamicPrompt2:
     @classmethod
