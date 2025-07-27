@@ -282,6 +282,27 @@ def search(processor, text) -> str:
         if result is not None:
             raise Exception('Unbalanced closing bracket "}" found.')
         return text
+    
+def find_wildcards_folder() -> Path | None:
+    """
+    Find the wildcards folder.
+    First look in the comfy_dynamicprompts folder, then in the custom_nodes folder, then in the Comfui base folder.
+    """
+    from folder_paths import base_path, folder_names_and_paths
+
+    wildcard_path = Path(base_path) / "wildcards"
+
+    if wildcard_path.exists():
+        return wildcard_path
+
+    extension_path = (
+        Path(folder_names_and_paths["custom_nodes"][0][0])
+        / "File_x_dynamic_prompt2"
+    )
+    wildcard_path = extension_path / "wildcards"
+    wildcard_path.mkdir(parents=True, exist_ok=True)
+
+    return wildcard_path
 
 class File_x_DynamicPrompt2:
     @classmethod
@@ -297,33 +318,12 @@ class File_x_DynamicPrompt2:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def _find_wildcards_folder(self) -> Path | None:
-        """
-        Find the wildcards folder.
-        First look in the comfy_dynamicprompts folder, then in the custom_nodes folder, then in the Comfui base folder.
-        """
-        from folder_paths import base_path, folder_names_and_paths
-
-        wildcard_path = Path(base_path) / "wildcards"
-
-        if wildcard_path.exists():
-            return wildcard_path
-
-        extension_path = (
-            Path(folder_names_and_paths["custom_nodes"][0][0])
-            / "File_x_dynamic_prompt2"
-        )
-        wildcard_path = extension_path / "wildcards"
-        wildcard_path.mkdir(parents=True, exist_ok=True)
-
-        return wildcard_path
-
     def process(self, text, seed, **kwargs):
         if seed < 0:
             rng = random.Random(None)
             seed = rng.randint(0, 0xffff_ffff_ffff_ffff)
         
-        wildcards_folder = self._find_wildcards_folder()
+        wildcards_folder = find_wildcards_folder()
         processor = File_x_Dynamic_Prompt_Processer(seed=seed, states=None, wildcard_path=wildcards_folder)
         result = search(processor, text)
 
@@ -331,3 +331,31 @@ class File_x_DynamicPrompt2:
 
         return (result,)
     
+class File_x_DynamicPrompt2_With_States_IO:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {   "text": ("STRING", {"multiline": True, "dynamicPrompts": False}),
+                                "seed": ("INT", {"default": 0, "min": -1, "max": 0xffff_ffff_ffff_ffff, "step": 1, "display": "number"}),
+                            },
+                "optional": {   "states": ("STATES",),
+                            }}
+    RETURN_TYPES = ("STRING", "STATES")
+    FUNCTION = "process"
+
+    CATEGORY = "File_xor/prompt"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def process(self, text, seed, states=None, **kwargs):
+        if seed < 0:
+            rng = random.Random(None)
+            seed = rng.randint(0, 0xffff_ffff_ffff_ffff)
+        
+        wildcards_folder = find_wildcards_folder()
+        processor = File_x_Dynamic_Prompt_Processer(seed=seed, states=states, wildcard_path=wildcards_folder)
+        result = search(processor, text)
+
+        print(result)
+
+        return (result,)
