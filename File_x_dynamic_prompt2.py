@@ -92,7 +92,7 @@ def choice(processor: File_x_Dynamic_Prompt_Processer, state, text) -> str:
     count_a = 1
     count_b = 1
     delimiter = ", "
-    result: re.M | re.Satch = re.search(r"^([0-9]*)(-?)([0-9]*)\$\$", text, re.M | re.S)
+    result: re.Match = re.search(r"^([0-9]*)(-?)([0-9]*)\$\$", text, re.M | re.S)
     if result is not None:
         if result[1] == "" and result[2] == "" and result[3] == "":
             pass
@@ -116,7 +116,7 @@ def choice(processor: File_x_Dynamic_Prompt_Processer, state, text) -> str:
             count_a = 0
             count_b = result[3]
         text = re.sub(r"^([0-9]*)(-?)([0-9]*)\$\$" ,"", text, 1)
-        result: re.M | re.Satch = re.search(r"^(.*?)\$\$", text, re.M | re.S)
+        result: re.Match = re.search(r"^(.*?)\$\$", text, re.M | re.S)
         if result is not None:
             delimiter = result[1]
             text = re.sub(r"^(.*?)\$\$", "", text, 1)
@@ -126,7 +126,7 @@ def choice(processor: File_x_Dynamic_Prompt_Processer, state, text) -> str:
     if count_b == -1:
         count_b = len(choices)
     for choice in choices:
-        result: re.M | re.Satch = re.search(r"((?P<number>[0-9]+(\.[0-9]*([eE][+-]?[0-9]+)?)?|\.[0-9]+([eE][+-]?[0-9]+)?)::)?(?P<text>.*)", choice, re.M | re.S)
+        result: re.Match = re.search(r"((?P<number>[0-9]+(\.[0-9]*([eE][+-]?[0-9]+)?)?|\.[0-9]+([eE][+-]?[0-9]+)?)::)?(?P<text>.*)", choice, re.M | re.S)
         if result is None:
             raise Exception('Unexpected error while parsing choice.')
         elif result["number"] is None:
