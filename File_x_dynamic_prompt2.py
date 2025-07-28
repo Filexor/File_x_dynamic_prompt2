@@ -40,9 +40,8 @@ from comfy.cli_args import args
 class File_x_Dynamic_Prompt_Processer:
     def __init__(self, seed=None, states=None, wildcard_path=None):
         self.rng = random.Random(seed)
-        states: dict[str, dict] = {} if states is None else states
-        self.variables: dict[str, str] = states.get("variables", {})
-        self.rng_states: dict = states.get("rng_states", {})
+        self.variables: dict[str, str] = getattr(states, "variables", {})
+        self.rng_states: dict = getattr(states, "rng_states", {})
         self.wildcard_path = wildcard_path
 
 def variable_store(processor: File_x_Dynamic_Prompt_Processer, state, key, value) -> str:
@@ -272,7 +271,7 @@ def search(processor, text) -> str:
                 continue
             result_ = re.search(r"\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)\}", matches, re.M | re.S)
             if result_ is not None:
-                text = result[1] + variable_recall(processor, search(processor, result_[1]), search(processor, result_[2])) + right
+                text = result[1] + search(processor, variable_recall(processor, search(processor, result_[1]), search(processor, result_[2]))) + right
                 continue
             result_ = re.search(r"\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)\}", matches, re.M | re.S)
             if result_ is not None:
@@ -329,7 +328,7 @@ class File_x_DynamicPrompt2:
 
         print(result)
 
-        return (result,)
+        return result,
     
 class File_x_DynamicPrompt2_With_States_IO:
     @classmethod
@@ -358,4 +357,4 @@ class File_x_DynamicPrompt2_With_States_IO:
 
         print(result)
 
-        return (result,)
+        return result, processor
