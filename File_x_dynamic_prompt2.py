@@ -91,7 +91,7 @@ def choice(processor: File_x_Dynamic_Prompt_Processer, state, text) -> str:
     count_a = 1
     count_b = 1
     delimiter = ", "
-    result: re.Match = re.search(r"^([0-9]*)(-?)([0-9]*)\$\$", text, re.M | re.S)
+    result: re.Match = re.search(r"^([0-9]*)(-?)([0-9]*)\$\$", text, re.S)
     if result is not None:
         if result[1] == "" and result[2] == "" and result[3] == "":
             pass
@@ -115,7 +115,7 @@ def choice(processor: File_x_Dynamic_Prompt_Processer, state, text) -> str:
             count_a = 0
             count_b = result[3]
         text = re.sub(r"^([0-9]*)(-?)([0-9]*)\$\$" ,"", text, 1)
-        result: re.Match = re.search(r"^(.*?)\$\$", text, re.M | re.S)
+        result: re.Match = re.search(r"^(.*?)\$\$", text, re.S)
         if result is not None:
             delimiter = result[1]
             text = re.sub(r"^(.*?)\$\$", "", text, 1)
@@ -125,7 +125,7 @@ def choice(processor: File_x_Dynamic_Prompt_Processer, state, text) -> str:
     if count_b == -1:
         count_b = len(choices)
     for choice in choices:
-        result: re.Match = re.search(r"((?P<number>[0-9]+(\.[0-9]*([eE][+-]?[0-9]+)?)?|\.[0-9]+([eE][+-]?[0-9]+)?)::)?(?P<text>.*)", choice, re.M | re.S)
+        result: re.Match = re.search(r"((?P<number>[0-9]+(\.[0-9]*([eE][+-]?[0-9]+)?)?|\.[0-9]+([eE][+-]?[0-9]+)?)::)?(?P<text>.*)", choice, re.S)
         if result is None:
             raise Exception('Unexpected error while parsing choice.')
         elif result["number"] is None:
@@ -155,15 +155,6 @@ def choice(processor: File_x_Dynamic_Prompt_Processer, state, text) -> str:
     return output
 
 def wildcard(processor: File_x_Dynamic_Prompt_Processer, state, text) -> str:
-    tmp_rng_state = None
-    if state is not None:
-        rng_state = processor.rng_states.get(state, None)
-        if rng_state is None:
-            processor.rng_states[state] = processor.rng.getstate()
-        else:
-            tmp_rng_state = processor.rng.getstate()
-            processor.rng.setstate(rng_state)
-
     output = ""
     if text == "":
         raise Exception('Given wildcard name is empty.')
@@ -177,27 +168,24 @@ def wildcard(processor: File_x_Dynamic_Prompt_Processer, state, text) -> str:
                     continue
                 output += line.replace("\n", "|")
             output = output.rstrip("|")
-    output = "{" + output + "}"
-
-    if tmp_rng_state is not None:
-        processor.rng.setstate(tmp_rng_state)
+    output = "{" + state + "$$" + output + "}" if state is not None else "{" + output + "}" 
     return output
 
 def search_wildcard(processor, text) -> str:
     if text is None:
         return None
     while True:
-        result = re.search(r"(.*?)(\$\{|\{)(.*)", text, re.M | re.S)
+        result = re.search(r"^(.*?)(?<!\\)(\$\{|%\{|\{)(.*)", text, re.S)
         if result is not None:
             balance = 1
             to_search = result[3]
             matches = result[2]
             while True:
-                result_ = re.search(r"(.*?)(\$\{|\{|\})(.*)", to_search, re.M | re.S)
+                result_ = re.search(r"^(.*?)(?<!\\)(\$\{|%\{|\{|\})(.*)", to_search, re.S)
                 if result_ is not None:
                     matches += result_[1] + result_[2]
                     to_search = result_[3]
-                    if result_[2] == "${" or result_[2] == "{":
+                    if result_[2] == "${" or result_[2] == "%{" or result_[2] == "{":
                         balance += 1
                     elif result_[2] == "}":
                         balance -=1
@@ -206,30 +194,34 @@ def search_wildcard(processor, text) -> str:
                         break
                 else:
                     raise Exception('Unbalanced open bracket "{" found.')
-            result_ = re.search(r"\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=!(.*)\}", matches, re.M | re.S)
+            result_ = re.search(r"^(?<!\\)\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=!(.*)(?<!\\)\}", matches, re.S)
             if result_ is not None:
                 text = result[1] + variable_store(processor, search(processor, result_[1]), search(processor, result_[2]), search(processor, result_[3])) + right
                 continue
-            result_ = re.search(r"\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=(.*)\}", matches, re.M | re.S)
+            result_ = re.search(r"^(?<!\\)\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=(.*)(?<!\\)\}", matches, re.S)
             if result_ is not None:
                 text = result[1] + variable_store(processor, search(processor, result_[1]), search(processor, result_[2]), result_[3]) + right
                 continue
-            result_ = re.search(r"\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)\}", matches, re.M | re.S)
+            result_ = re.search(r"^(?<!\\)\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)(?<!\\)\}", matches, re.S)
             if result_ is not None:
-                text = result[1] + variable_recall(processor, search(processor, result_[1]), search(processor, result_[2])) + right
+                text = result[1] + search(processor, variable_recall(processor, search(processor, result_[1]), search(processor, result_[2]))) + right
                 continue
-            result_ = re.search(r"\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)\}", matches, re.M | re.S)
+            result_ = re.search(r"^(?<!\\)%\{(.*?)(?:(?<!\\)\$\$)(.*)(?<!\\)\}", matches, re.S)
+            if result_ is not None:
+                text = result[1] + search(processor, re.sub(r"(?<!\\)\.\.\.", result_[2].replace("\\", "\\\\"), search(processor, result_[1]))) + right
+                continue
+            result_ = re.search(r"^(?<!\\)\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)(?<!\\)\}", matches, re.S)
             if result_ is not None:
                 text = result[1] + choice(processor, search(processor, result_[1]), search(processor, result_[2])) + right
                 continue
-        result = re.search(r"(.*?)(\})(.*)", text, re.M | re.S)
+        result = re.search(r"^(.*?)(?<!\\)(\})(.*)", text, re.S)
         if result is not None:
             raise Exception('Unbalanced closing bracket "}" found.')
-        result = re.search(r"(.*?)(?<!\\)__(.*?)(?<!\\)__(.*)", text, re.M | re.S)
+        result = re.search(r"^(.*?)(?<!\\)__(.*?)(?<!\\)__(.*)", text, re.S)
         if result is not None:
             text = result[1] + search_wildcard(processor, result[2]) + result[3]
             continue
-        result = re.search(r"(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)", text, re.M | re.S)
+        result = re.search(r"^(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)", text, re.S)
         if result is not None:
             return wildcard(processor, search(processor, result[1]), search(processor, result[2]))
         raise Exception('Unreachable condition reached.')
@@ -238,21 +230,21 @@ def search(processor, text) -> str:
     if text is None:
         return None
     while True:
-        result = re.search(r"(.*?)(?<!\\)__(.*?)(?<!\\)__(.*)", text, re.M | re.S)
+        result = re.search(r"^(.*?)(?<!\\)__(.*?)(?<!\\)__(.*)", text, re.S)
         if result is not None:
             text = result[1] + search_wildcard(processor, result[2]) + result[3]
             continue
-        result = re.search(r"(.*?)(\$\{|\{)(.*)", text, re.M | re.S)
+        result = re.search(r"^(.*?)(?<!\\)(\$\{|%\{|\{)(.*)", text, re.S)
         if result is not None:
             balance = 1
             to_search = result[3]
             matches = result[2]
             while True:
-                result_ = re.search(r"(.*?)(\$\{|\{|\})(.*)", to_search, re.M | re.S)
+                result_ = re.search(r"^(.*?)(?<!\\)(\$\{|%\{|\{|\})(.*)", to_search, re.S)
                 if result_ is not None:
                     matches += result_[1] + result_[2]
                     to_search = result_[3]
-                    if result_[2] == "${" or result_[2] == "{":
+                    if result_[2] == "${" or result_[2] == "%{" or result_[2] == "{":
                         balance += 1
                     elif result_[2] == "}":
                         balance -=1
@@ -261,23 +253,27 @@ def search(processor, text) -> str:
                         break
                 else:
                     raise Exception('Unbalanced opening bracket "{" found.')
-            result_ = re.search(r"\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=!(.*)\}", matches, re.M | re.S)
+            result_ = re.search(r"^(?<!\\)\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=!(.*)(?<!\\)\}", matches, re.S)
             if result_ is not None:
                 text = result[1] + variable_store(processor, search(processor, result_[1]), search(processor, result_[2]), search(processor, result_[3])) + right
                 continue
-            result_ = re.search(r"\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=(.*)\}", matches, re.M | re.S)
+            result_ = re.search(r"^(?<!\\)\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*?)(?<!\\)=(.*)(?<!\\)\}", matches, re.S)
             if result_ is not None:
                 text = result[1] + variable_store(processor, search(processor, result_[1]), search(processor, result_[2]), result_[3]) + right
                 continue
-            result_ = re.search(r"\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)\}", matches, re.M | re.S)
+            result_ = re.search(r"^(?<!\\)\$\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)(?<!\\)\}", matches, re.S)
             if result_ is not None:
                 text = result[1] + search(processor, variable_recall(processor, search(processor, result_[1]), search(processor, result_[2]))) + right
                 continue
-            result_ = re.search(r"\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)\}", matches, re.M | re.S)
+            result_ = re.search(r"^(?<!\\)%\{(.*?)(?:(?<!\\)\$\$)(.*)(?<!\\)\}", matches, re.S)
+            if result_ is not None:
+                text = result[1] + search(processor, re.sub(r"(?<!\\)\.\.\.", result_[2].replace("\\", "\\\\"), search(processor, result_[1]))) + right
+                continue
+            result_ = re.search(r"^(?<!\\)\{(?:([^0-9-].*?)(?:(?<!\\)\$\$))?(.*)(?<!\\)\}", matches, re.S)
             if result_ is not None:
                 text = result[1] + choice(processor, search(processor, result_[1]), search(processor, result_[2])) + right
                 continue
-        result = re.search(r"(.*?)(\})(.*)", text, re.M | re.S)
+        result = re.search(r"^(.*?)(?<!\\)(\})(.*)", text, re.S)
         if result is not None:
             raise Exception('Unbalanced closing bracket "}" found.')
         return text
